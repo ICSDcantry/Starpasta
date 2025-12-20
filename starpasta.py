@@ -15,8 +15,8 @@ import os
 # https://iopscience.iop.org/article/10.1088/0004-637X/749/1/91
 # Additional Mass Loss mechanisms from "ON THE MAXIMUM MASS OF STELLAR BLACK HOLES", Belczynski et al. 2010 (B2010)
 # https://iopscience.iop.org/article/10.1088/0004-637X/714/2/1217
-# Habitable Zone Boundaries from "HABITABLE ZONES AROUND MAIN-SEQUENCE STARS: DEPENDENCE ON PLANETARY MASS", Kopparapu et al. 2014 (K2014)
-# https://iopscience.iop.org/article/10.1088/2041-8205/787/2/L29/meta
+# Habitable Zone Boundaries from "A Methane Extension to the Classical Habitable Zone", Ramirez and Kaltenegger 2018 (R2018)
+# https://iopscience.iop.org/article/10.3847/1538-4357/aab8fa/meta
 # Pair-instability supernovae from "The effect of pair-instability mass loss on black-hole mergers", Belczynski et al. 2016 (B2016)
 
 
@@ -1801,19 +1801,19 @@ def data_store(datain, step, stage, t, mt, Mc, McCO, ML, L, R, Rc):
 #General formula for HZ calculation
 def f_HZ(L, THZ, S, ka, kb, kc, kd):
     Te = THZ - 5780
-    Seff = S + ka*Te + kb*Te**2 + kc*Te**3 + kd*Te**4  #eq 4 from K2014
-    dist = (L / Seff)**0.5  #eq 5 from K2015
+    Seff = S + ka*Te + kb*Te**2 + kc*Te**3 + kd*Te**4  #eq 2 from R2018
+    dist = (L / Seff)**0.5
     return dist
     
 
 #Computes extra data for output
 def data_add(L, R):
     Teff = 5778 * ma.sqrt(ma.sqrt(L) / R)
-    THZ = max(2600, min(7200, Teff))    #Fits from K2014 are only given for 2600-7200 K, so the Seff values at these bounds are crudely extrapolated outwards
-    hzoptin = f_HZ(L, THZ, 1.776, 2.136e-4, 2.533e-8, -1.332e-11, -3.097e-15)   #Table 1 from K2014
-    hzconin = f_HZ(L, THZ, 1.107, 1.332e-4, 1.580e-8, -8.308e-12, -1.931e-15)
-    hzconout = f_HZ(L, THZ, 0.356, 6.171e-5, 1.698e-9, -3.198e-12, -5.575e-16)
-    hzoptout = f_HZ(L, THZ, 0.320, 5.547e-5, 1.526e-9, -2.874e-12, -5.011e-16)
+    THZ = max(2600, min(10000, Teff))    #Fits from R2018 are only given for 2600-10000 K, so the Seff values at these bounds are crudely extrapolated outwards
+    hzoptin = f_HZ(L, THZ, 1.768, 1.3151e-4, 5.8695e-10, -2.8895e-12, 3.2174e-16)   #Table 2 from R2018
+    hzconin = f_HZ(L, THZ, 1.105, 1.1921e-4, 9.5932e-9, -2.6189e-12, 1.3710e-16)
+    hzconout = f_HZ(L, THZ, 0.3587, 5.8087e-5, 1.5393e-9, -8.3547e-13, 1.0319e-16)
+    hzoptout = f_HZ(L, THZ, 0.3246, 5.213e-5, 4.5245e-10, 1.0223e-12, 9.6376e-17)
     return Teff, hzoptin, hzconin, hzconout, hzoptout
     
     

@@ -1,0 +1,31 @@
+Nikolai Hersfeldt with minor improvements by me
+
+
+
+Star Pasta Stellar Evolution Script
+Written 2021 by Nikolai Hersfeldt
+as an implementation of
+"Comprehensive analytic formulae for stellar evolution as a function of mass and metallicity", Hurley et al. 2000
+ (with updates from other papers, cited in the readme)
+
+
+# Star Pasta
+# Stellar Evolution Script
+# Written 2021 by Nikolai Hersfeldt
+
+# This is an implementation of the formulae in the paper "Comprehensive analytic formulae for stellar evolution as a function of mass and metallicity", Hurley et al. 2000
+# http://adsabs.harvard.edu/pdf/2000MNRAS.315..543H
+# With ZAMS L and R calculations from Tout et al. 1996, as in the above paper
+# https://www.semanticscholar.org/paper/Zero-age-main-sequence-radii-and-luminosities-as-of-Tout-Pols/1a2ace027e19fbba890df95360cebb5b672551e8?p2df
+# And with modifications from the following papers:
+# Improved NS/BH masses and EC Sne from "COMPACT REMNANT MASS FUNCTION: DEPENDENCE ON THE EXPLOSION MECHANISM AND METALLICITY", Fryer et al. 2012 (F2012)
+# https://iopscience.iop.org/article/10.1088/0004-637X/749/1/91
+# Additional Mass Loss mechanisms from "ON THE MAXIMUM MASS OF STELLAR BLACK HOLES", Belczynski et al. 2010 (B2010)
+# https://iopscience.iop.org/article/10.1088/0004-637X/714/2/1217
+# Habitable Zone Boundaries from "A Methane Extension to the Classical Habitable Zone", Ramirez and Kaltenegger 2018 (R2018)
+# https://iopscience.iop.org/article/10.3847/1538-4357/aab8fa/meta
+# Pair-instability supernovae from "The effect of pair-instability mass loss on black-hole mergers", Belczynski et al. 2016 (B2016)
+
+
+
+"MISSING BLACK HOLES UNVEIL THE SUPERNOVA EXPLOSION MECHANISM", https://iopscience.iop.org/article/10.1088/0004-637X/757/1/91

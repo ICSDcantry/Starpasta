@@ -1,374 +1,481 @@
 import math as ma
-import numpy as np
-import os
-
-# Star Pasta
-# Stellar Evolution Script
-# Written 2021 by Nikolai Hersfeldt
-
-# This is an implementation of the formulae in the paper "Comprehensive analytic formulae for stellar evolution as a function of mass and metallicity", Hurley et al. 2000
-# http://adsabs.harvard.edu/pdf/2000MNRAS.315..543H
-# With ZAMS L and R calculations from Tout et al. 1996, as in the above paper
-# https://www.semanticscholar.org/paper/Zero-age-main-sequence-radii-and-luminosities-as-of-Tout-Pols/1a2ace027e19fbba890df95360cebb5b672551e8?p2df
-# And with modifications from the following papers:
-# Improved NS/BH masses and EC Sne from "COMPACT REMNANT MASS FUNCTION: DEPENDENCE ON THE EXPLOSION MECHANISM AND METALLICITY", Fryer et al. 2012 (F2012)
-# https://iopscience.iop.org/article/10.1088/0004-637X/749/1/91
-# Additional Mass Loss mechanisms from "ON THE MAXIMUM MASS OF STELLAR BLACK HOLES", Belczynski et al. 2010 (B2010)
-# https://iopscience.iop.org/article/10.1088/0004-637X/714/2/1217
-# Habitable Zone Boundaries from "A Methane Extension to the Classical Habitable Zone", Ramirez and Kaltenegger 2018 (R2018)
-# https://iopscience.iop.org/article/10.3847/1538-4357/aab8fa/meta
-# Pair-instability supernovae from "The effect of pair-instability mass loss on black-hole mergers", Belczynski et al. 2016 (B2016)
 
 
-ML_on = True    #Toggles mass loss and small envelope adjustment
-verbose = False #Makes script report each timestep in the command window
-stop_LM = True  #Stops stars <0.7 continuing past MS
-fast_SN = True  #Use remnant mass formulae from F2012 rather than old behavior; should be true per Belczynski et al. 2012, "MISSING BLACK HOLES UNVEIL THE SUPERNOVA EXPLOSION MECHANISM", https://iopscience.iop.org/article/10.1088/0004-637X/757/1/91
+def interp(lo_in,hi_in,lo_dep,hi_dep,var):
+    res = lo_dep + (hi_dep - lo_dep) * (var - lo_in) / (hi_in - lo_in) 
+    return res
 
-# PART 1: Collect user input:
-
-print('''
-Star Pasta Stellar Evolution Script
-Written 2021 by Nikolai Hersfeldt
-as an implementation of
-"Comprehensive analytic formulae for stellar evolution as a function of mass and metallicity", Hurley et al. 2000
- (with updates from other papers, cited in the readme)
-''')
-
-M = float(input('''Star Mass
-Initial mass of the star at the start of the main sequence
-High-mass stars will lose much of this over their lives
-Input as solar masses (multiples of the sun's mass)
-Valid between 0.08 and 300
-Best accuracy between 0.8 and 150
-Input: '''))
-
-M0 = M
-
-if M < 0.8:
-    LM_prompt = input(''' Include post-main sequence in simulation?
- Accuracy not guaranteed for mass < 0.8
- and probably totally wrong for mass < 0.25
- y to include, n to stop after main sequence: ''')
-    if 'y' in LM_prompt or '1' in LM_prompt:
-        stop_LM = False
-
-Z = float(input('''Star Metallicity
-Portion of the star that is something other than H and He
-Around 0.02 for our sun
-Valid between 0.0001 and 0.03
-Input: '''))
-
-
-path = os.path.join(os.path.dirname(__file__), '')
-
-##############################################################################################################
-
-# PART 2: Determine coefficients:
-
-def poly(z, a, b=0, c=0, d=0, e=0):
-    con = a + b*z + c*z**2 + d*z**3 + e*z**4
+def poly(z, a, b=0, c=0, d=0, e=0, f=0):
+    con = a + b*z + c*z**2 + d*z**3 + e*z**4 + f*z**5
     return con
 
-print('Calculating coefficients...')
+def clamp(x, a, b):
+    return min(b, max(a, x))
 
-zeta = ma.log10(Z/0.02)
-sigma = ma.log10(Z)
-rho = zeta + 1
 
-a1  = poly(zeta,  1.593890 *1000,  2.053038 *1000,  1.231226 *1000,  2.327785 *100)
-a2  = poly(zeta,  2.706708 *1000,  1.483131 *1000,  5.772723 *100,   7.411230 *10)
-a3  = poly(zeta,  1.466143 *100,  -1.048442 *100,  -6.795374 *10,   -1.391127 *10)
-a4  = poly(zeta,  4.141960 /100,   4.564888 /100,   2.958542 /100,   5.571483 /1000)
-a5  = poly(zeta,  3.426349 /10)
-a6  = poly(zeta,  1.949814 *10,    1.758178,       -6.008212,       -4.470533)
-a7  = poly(zeta,  4.903830)
-a8  = poly(zeta,  5.212154 /100,   3.166411 /100,  -2.750074 /1000, -2.271549 /1000)
-a9  = poly(zeta,  1.312179,       -3.294936 /10,    9.231860 /100,   2.610989 /100)
-a10 = poly(zeta,  8.073972 /10)
-a11 = poly(zeta,  1.031538,       -2.434480 /10,    7.732821,        6.460705,        1.374484)
-a12 = poly(zeta,  1.043715,       -1.577474,       -5.168234,       -5.596506,       -1.299394)
-a13 = poly(zeta,  7.859573 *100,  -8.542048,       -2.642511 *10,   -9.585707)
-a14 = poly(zeta,  3.858911 *1000,  2.459681 *1000, -7.630093 *10,   -3.486057 *100,  -4.861703 *10)
-a15 = poly(zeta,  2.888720 *100,   2.952979 *100,   1.850341 *100,   3.797254 *10)
-a16 = poly(zeta,  7.196580,        5.613746 /10,    3.805871 /10,    8.398728 /100)
 
-a11 = a11 * a14
-a12 = a12 * a14
 
-a18 = poly(zeta,  2.187715 /10,   -2.154437,       -3.768678,       -1.975518,       -3.021475 /10)
-a19 = poly(zeta,  1.466440,        1.839725,        6.442199,        4.023635,        6.957529 /10)
-a20 = poly(zeta,  2.652091 *10,    8.178458 *10,    1.156058 *100,   7.633811 *10,    1.950698 *10)
-a21 = poly(zeta,  1.472103,       -2.947609,       -3.312828,       -9.945065 /10)
-a22 = poly(zeta,  3.071048,       -5.679941,       -9.745523,       -3.594543)
-a23 = poly(zeta,  2.617890,        1.019135,       -3.292551 /100,  -7.445123 /100)
-a24 = poly(zeta,  1.075567 /100,   1.773287 /100,   9.610479 /1000,  1.732469 /1000)
-a25 = poly(zeta,  1.476246,        1.899331,        1.195010,        3.035051 /10)
-a26 = poly(zeta,  5.502535,       -6.601663 /100,   9.968707 /100,   3.599801 /100)
+global hypometalic
+global hypermetalic
 
-a17 = 10 ** max(0.097 - 0.1072 * (sigma +3), max(0.097, min(0.1461, 0.1462 + 0.1237 * (sigma + 2))))
-a18 = a18 * a20
-a19 = a19 * a20
+global a1
+global a2
+global a3
+global a4
+global a5
+global a6
+global a7
+global a8
+global a9
+global a10
+global a11
+global a12
+global a13
+global a14
+global a15
+global a16
+global a17
+global a18
+global a19
+global a20
+global a21
+global a22
+global a23
+global a24
+global a25
+global a26
+global a27
+global a28
+global a29
+global a30
+global a31
+global a32
+global a33
+global a34
+global a35
+global a36
+global a37
+global a38
+global a39
+global a40
+global a41
+global a42
+global a43
+global a44
+global a45
+global a46
+global a47
+global a48
+global a49
+global a50
+global a51
+global a52
+global a53
+global a54
+global a55
+global a56
+global a57
+global a58
+global a59
+global a60
+global a61
+global a62
+global a63
+global a64
+global a65
+global a66
+global a67
+global a68
+global a69
+global a70
+global a71
+global a72
+global a73
+global a74
+global a75
+global a76
+global a77
+global a78
+global a79
+global a80
+global a81
 
-a27 = poly(zeta,  9.511033 *10,    6.819618 *10,   -1.045625 *10,   -1.474939 *10)
-a28 = poly(zeta,  3.113458 *10,    1.012033 *10,   -4.650511,       -2.463185)
-a29 = poly(zeta,  1.413057,        4.578814 /10,   -6.850581 /100,  -5.588658 /100)
-a30 = poly(zeta,  3.910862 *10,    5.196646 *10,    2.264970 *10,    2.873680)
-a31 = poly(zeta,  4.597479,       -2.855179 /10,    2.709724 /10)
-a32 = poly(zeta,  6.682518,        2.827718 /10,   -7.294429 /100)
 
-a29 = a29 ** a32
-
-a34 = poly(zeta,  1.910302 /10,    1.158624 /10,    3.348990 /100,   2.599706 /1000)
-a35 = poly(zeta,  3.931056 /10,    7.277637 /100,  -1.366593 /10,   -4.508946 /100)
-a36 = poly(zeta,  3.267776 /10,    1.204424 /10,    9.988332 /100,   2.455361 /100)
-a37 = poly(zeta,  5.990212 /10,    5.570264 /100,   6.207626 /100,   1.777283 /100)
-
-a33 = min(1.4, 1.5135 + 0.3769*zeta)
-a33 = max(0.6355 - 0.4192*zeta, max(1.25, a33))
-
-a38 = poly(zeta,  7.330122 /10,    5.192827 /10,    2.316416 /10,    8.346941 /1000)
-a39 = poly(zeta,  1.172768,       -1.209262 /10,   -1.193023 /10,   -2.859837 /100)
-a40 = poly(zeta,  3.982622 /10,   -2.296279 /10,   -2.262539 /10,   -5.219837 /100)
-a41 = poly(zeta,  3.571038,       -2.223625 /100,  -2.611794 /100,  -6.359648 /1000)
-a42 = poly(zeta,  1.9848,          1.1386,          3.5640   /10)
-a43 = poly(zeta,  6.300    /100,   4.810    /100,   9.840    /1000)
-a44 = poly(zeta,  1.200,           2.450)
-
-a42 = min(1.25, max(1.1, a42))
-a44 = min(1.3, max(0.45, a44))
-
-a45 = poly(zeta,  2.321400 /10,    1.828075 /1000, -2.232007 /100,  -3.378734 /1000)
-a46 = poly(zeta,  1.163659 /100,   3.427682 /1000,  1.421393 /1000, -3.710666 /1000)
-a47 = poly(zeta,  1.048020 /100,  -1.231921 /100,  -1.686860 /100,  -4.234254 /1000)
-a48 = poly(zeta,  1.555590,       -3.223927 /10,   -5.197429 /10,   -1.066441 /10)
-a49 = poly(zeta,  9.7700   /100,  -2.3100   /10,   -7.5300   /100)
-a50 = poly(zeta,  2.4000   /10,    1.8000   /10,    5.9500   /10)
-a51 = poly(zeta,  3.3000   /10,    1.3200   /10,    2.1800   /10)
-a52 = poly(zeta,  1.1064,          4.1500   /10,    1.8000   /10)
-a53 = poly(zeta,  1.1900,          3.7700   /10,    1.7600   /10)
-
-a49 = max(a49, 0.145)
-a50 = min(a50, 0.306 + 0.053*zeta)
-a51 = min(a51, 0.3625 + 0.062*zeta)
-a52 = max(a52, 0.9)
-a53 = max(a53, 1.0)
-if Z > 0.01:
-    a52 = min(a52, 1.0)
-    a53 = min(a53, 1.1)
-
-a54 = poly(zeta,  3.855707 /10,   -6.104166 /10,    5.676742,        1.060894 *10,    5.284014)
-a55 = poly(zeta,  3.579064 /10,   -6.442936 /10,    5.494644,        1.054952 *10,    5.280991)
-a56 = poly(zeta,  9.587587 /10,    8.777464 /10,    2.017321 /10)
-
-a57 = min(1.4, 1.5135 + 0.3769*zeta)
-a57 = max(0.6355 - 0.4192*zeta, max(1.25, a57))
-
-a58 = poly(zeta,  4.907546 /10,   -1.683928 /10,   -3.108742 /10,   -7.202918 /100)
-a59 = poly(zeta,  4.537070,       -4.465455,       -1.612690,       -1.623246)
-a60 = poly(zeta,  1.796220,        2.814020 /10,    1.423325,        3.421036 /10)
-a61 = poly(zeta,  2.256216,        3.773400 /10,    1.537867,        4.396373 /10)
-a62 = poly(zeta,  8.4300   /100,  -4.7500   /100,  -3.5200   /100)
-a63 = poly(zeta,  7.3600   /100,   7.4900   /100,   4.4260   /100)
-a64 = poly(zeta,  1.3600   /10,    3.5200   /100)
-a65 = poly(zeta,  1.564231 /1000,  1.653042 /1000, -4.439786 /1000, -4.951011 /1000, -1.216530 /1000)
-a66 = poly(zeta,  1.4770,          2.9600   /10)
-a67 = poly(zeta,  5.210157,       -4.143695,       -2.120870)
-a68 = poly(zeta,  1.1160,          1.6600   /10)
-
-a62 = max(0.065, a62)
-if Z < 0.004:
-    a63 = min(0.055, a63)
-a64 = max(0.091, min(0.121, a64))
-a66 = max(a66, min(1.6, -0.308 - 1.046*zeta))
-a66 = max(0.8, min(0.8 - 2.0*zeta, a66))
-a68 = max(0.9, min(a68, 1.0))
-a68 = min(a68, a66)
-
-if a68 > a66:
-    a64 = (a58*a66**a60) / (a59 + a66**a61)
-
-a69 = poly(zeta,  1.071489,       -1.164852 /10,   -8.623831 /100,  -1.582349 /100)
-a70 = poly(zeta,  7.108492 /10,    7.935927 /10,    3.926983 /10,    3.622146 /100)
-a71 = poly(zeta,  3.478514,       -2.585474 /100,  -1.512955 /100,  -2.833691 /1000)
-a72 = poly(zeta,  9.132108 /10,   -1.653695 /10)
-a73 = poly(zeta,  3.969331 /1000,  4.539076 /1000,  1.720906 /1000,  1.897857 /10000)
-a74 = poly(zeta,  1.600,           7.640    /10,    3.322    /10)
-
-if Z > 0.01:
-    a72 = max(a72, 0.95)
-a74 = max(1.4, min(a74, 1.6))
-
-a75 = poly(zeta,  8.109    /10,   -6.282    /10)
-a76 = poly(zeta,  1.192334 /100,   1.083057 /100,   1.230969,        1.551656)
-a77 = poly(zeta, -1.668868 /10,    5.818123 /10,   -1.105027 *10,   -1.668070 *10)
-a78 = poly(zeta,  7.615495 /10,    1.068243 /10,   -2.011333 /10,   -9.371415 /100)
-a79 = poly(zeta,  9.409838,        1.522928)
-a80 = poly(zeta, -2.7110   /10,   -5.7560   /10,   -8.3800   /100)
-a81 = poly(zeta,  2.4930,          1.1475)
-
-a75 = max(1.0, min(a75, 1.27))
-a75 = max(a75, 0.6355 - 0.4192*zeta)
-a76 = max(a76, -0.1015564 - 0.2161264*zeta - 0.05182516*zeta**2)
-a77 = max(-0.3868776 - 0.5457078*zeta - 0.1463472*zeta**2, min(0.0, a77))
-a78 = max(0.0, min(a78, 7.454 + 9.046*zeta))
-a79 = min(a79, max(2.0, -13.3 - 18.6*zeta))
-a80 = max(0.0585542, a80)
-a81 = min(1.5, max(0.4, a81))
-
-b1  = poly(zeta,  3.9700   /10,    2.8826   /10,    5.2930   /10)
-b4  = poly(zeta,  9.960283 /10,    8.164393 /10,    2.383830,        2.223436,        8.638115 /10)
-b5  = poly(zeta,  2.561062 /10,    7.072646 /100,  -5.444596 /100,  -5.798167 /100,  -1.349129 /100)
-b6  = poly(zeta,  1.157338,        1.467883,        4.299661,        3.130500,        6.992080 /10)
-b7  = poly(zeta,  4.022765 /10,    3.050010 /10,    9.962137 /10,    7.914079 /10,    1.728090 /10)
-
-b1 = min(0.54, b1)
-b2 = 10**(-4.6739 - 0.9394*sigma)
-b2 = min(max(b2, -0.04167 + 55.67*Z), 0.4771 - 9329.21 * Z**2.94)
-b3 = max(-0.1451, -2.2794 - 1.5175*sigma - 0.254*sigma**2)
-b3 = 10**b3
-if Z > 0.004:
-    b3 = max(b3, 0.7307 + 14265.1 * Z**3.395)
-b4 = b4 + 0.1231572*zeta**5
-b6 = b6 + 0.01640687*zeta**5
-
-b9  = poly(zeta,  2.751631 *1000,  3.557098 *100)
-b10 = poly(zeta, -3.820831 /100,   5.872664 /100)
-b11 = poly(zeta,  1.071738 *100,  -8.970339 *10,   -3.939739 *10)
-b12 = poly(zeta,  7.348793 *100,  -1.531020 *100,  -3.793700 *10)
-b13 = poly(zeta,  9.219293,       -2.005865,       -5.561309 /10)
-
-b11 = b11**2
-b13 = b13**2
-
-b14 = poly(zeta,  2.917412,        1.575290,        5.751814 /10)
-b15 = poly(zeta,  3.629118,       -9.112722 /10,    1.042291)
-b16 = poly(zeta,  4.916389,        2.862149,        7.844850 /10)
-
-b14 = b14 ** b15
-b16 = b16 ** b15
-b17 = 1.0
-if zeta > -1.0:
-    b17 = 1.0 - 0.3880523 * (zeta + 1.0) ** 2.862149
-
-b18 = poly(zeta,  5.496045 *10,   -1.289968 *10,    6.385758)
-b19 = poly(zeta,  1.832694,       -5.766608 /100,   5.696128 /100)
-b20 = poly(zeta,  1.211104 *100)
-b21 = poly(zeta,  2.214088 *100,   2.187113 *100,   1.170177 *10,   -2.635340 *10)
-b22 = poly(zeta,  2.063983,        7.363827 /10,    2.654323 /10,   -6.140719 /100)
-b23 = poly(zeta,  2.003160,        9.388871 /10,    9.656450 /10,    2.362266 /10)
-b24 = poly(zeta,  1.609901 *10,    7.391573,        2.277010 *10,    8.334227)
-b25 = poly(zeta,  1.747500 /10,    6.271202 /100,  -2.324229 /100,  -1.844559 /100)
-b27 = poly(zeta,  2.752869,        2.729201 /100,   4.996927 /10,    2.496551 /10)
-b28 = poly(zeta,  3.518506,        1.112440,       -4.556216 /10,   -2.179426 /10)
-
-b24 = b24 ** b28
-b26 = 5.0 - 0.09138012 * Z ** -0.3671407
-b27 = b27 ** (2*b28)
-
-b29 = poly(zeta,  1.626062 *100,  -1.168838 *10,   -5.498343)
-b30 = poly(zeta,  3.336833 /10,   -1.458043 /10,   -2.011751 /100)
-b31 = poly(zeta,  7.425137 *10,    1.790236 *10,    3.033910 *10,    1.018259 *10)
-b32 = poly(zeta,  9.268325 *100,  -9.739859 *10,   -7.702152 *10,   -3.158268 *10)
-b33 = poly(zeta,  2.474401,        3.892972 /10)
-b34 = poly(zeta,  1.127018 *10,    1.622158,       -1.442664,       -9.474699 /10)
-
-b31 = b31 ** b33
-b34 = b34 ** b33
-
-b36 = poly(zeta,  1.445216 /10,   -6.180219 /100,   3.093878 /100,   1.567090 /100)
-b37 = poly(zeta,  1.304129,        1.395919 /10,    4.142455 /1000, -9.732503 /1000)
-b38 = poly(zeta,  5.114149 /10,   -1.160850 /100)
-
-b36 = b36 ** 4
-b37 = 4.0 * b37
-b38 = b38 ** 4
-
-b39 = poly(zeta,  1.314955 *100,   2.009258 *10,   -5.143082 /10,   -1.379140)
-b40 = poly(zeta,  1.823973 *10,   -3.074559,       -4.307878)
-b41 = poly(zeta,  2.327037,        2.403445,        1.208407,        2.087263 /10)
-b42 = poly(zeta,  1.997378,       -8.136205 /10)
-b43 = poly(zeta,  1.079113 /10,    1.762409 /100,   1.096601 /100,   3.058818 /1000)
-b44 = poly(zeta,  2.327409,        6.901582 /10,   -2.158431 /10,   -1.084117 /10)
-
-b40 = max(b40, 1.0)
-b41 = b41 ** b42
-b44 = b44 ** 5
-
-b46 = poly(zeta,  2.214315,       -1.975747)
-b48 = poly(zeta,  5.072525,        1.146189 *10,    6.961724,        1.316965)
-b49 = poly(zeta,  5.139740)
-
-b45 = 1.0 - (2.47162*rho - 5.401682*rho**2 + 3.247361*rho**3)
-if rho <= 0:
-    b45 = 1.0
-b47 = 1.127733*rho + 0.2344416*rho**2 - 0.3793726*rho**3
-
-b51 = poly(zeta,  1.125124,        1.306486,        3.622359,        2.601976,        3.031270 /10)
-b52 = poly(zeta,  3.349289 /10,    4.531269 /1000,  1.131793 /10,    2.300156 /10,    7.632745 /100)
-b53 = poly(zeta,  1.467794,        2.798142,        9.455580,        8.963904,        3.339719)
-b54 = poly(zeta,  4.658512 /10,    2.597451 /10,    9.048179 /10,    7.394505 /10,    1.607092 /10)
-b55 = poly(zeta,  1.0422,          1.3156   /10,    4.5000   /100)
-b56 = poly(zeta,  1.110866,        9.623856 /10,    2.735487,        2.445602,        8.826352 /10)
-b57 = poly(zeta, -1.584333 /10,   -1.728865 /10,   -4.461431 /10,   -3.925259 /10,   -1.276203 /10)
-
-b51 = b51 - 0.1343798*zeta**5
-b53 = b53 + 0.4426929*zeta**5
-b55 = min(0.99164 - 743.123 * Z**2.83, b55)
-b56 = b56 + 0.1140142*zeta**5
-b57 = b57 - 0.01308728*zeta**5
+global b1
+global b2
+global b3
+global b4
+global b5
+global b6
+global b7
+global b8
+global b9
+global b10
+global b11
+global b12
+global b13
+global b14
+global b15
+global b16
+global b17
+global b18
+global b19
+global b20
+global b21
+global b22
+global b23
+global b24
+global b25
+global b26
+global b27
+global b28
+global b29
+global b30
+global b31
+global b32
+global b33
+global b34
+global b35
+global b36
+global b37
+global b38
+global b39
+global b40
+global b41
+global b42
+global b43
+global b44
+global b45
+global b46
+global b47
+global b48
+global b49
+global b50
+global b51
+global b52
+global b53
+global b54
+global b55
+global b56
+global b57
 
 #coefficients for ZAMS luminosity and radius
 
-lz1 = poly(zeta,   0.39704170,  -0.32913574,   0.34776688,   0.37470851,   0.09011915)
-lz2 = poly(zeta,   8.52762600, -24.41225973,  56.43597107,  37.06152575,   5.45624060)
-lz3 = poly(zeta,   0.00025546,  -0.00123461,  -0.00023246,   0.00045519,   0.00016176)
-lz4 = poly(zeta,   5.43288900,  -8.62157806,  13.44202049,  14.51584135,   3.39793084)
-lz5 = poly(zeta,   5.56357900, -10.32345224,  19.44322980,  18.97361347,   4.16903097)
-lz6 = poly(zeta,   0.78866060,  -2.90870942,   6.54713531,   4.05606657,   0.53287322)
-lz7 = poly(zeta,   0.00586685,  -0.01704237,   0.03872348,   0.02570041,   0.00383376)
+global lz1
+global lz2
+global lz3
+global lz4
+global lz5
+global lz6
+global lz7
 
-rz1 = poly(zeta,   1.71535900,   0.62246212,  -0.92557761,  -1.16996966,  -0.30631491)
-rz2 = poly(zeta,   6.59778800,  -0.42450044, -12.13339427, -10.73509484,  -2.51487077)
-rz3 = poly(zeta,  10.08855000,  -7.11727086, -31.67119479, -24.24848322,  -5.33608972)
-rz4 = poly(zeta,   1.01249500,   0.32699690,  -0.00923418,  -0.03876858,  -0.00412750)
-rz5 = poly(zeta,   0.07490166,   0.02410413,   0.07233664,   0.03040467,   0.00197741)
-rz6 = poly(zeta,   0.01077422)
-rz7 = poly(zeta,   3.08223400,   0.94472050,  -2.15200882,  -2.49219496,  -0.63848738)
-rz8 = poly(zeta,  17.84778000,  -7.45245690, -48.96066856, -40.05386135,  -9.09331816)
-rz9 = poly(zeta,   0.00022582,  -0.00186899,   0.00388783,   0.00142402,  -0.00007671)
+global rz1
+global rz2
+global rz3
+global rz4
+global rz5
+global rz6
+global rz7
+global rz8
+global rz9
+
+#idk
+
+global D0
+global MOBZIDK
+
+
+global b460
+global b550
+
+global Mhook
+global MHeF
+global MFGB
+
+global X
+
+
+
+global Z
+
+
+
+
+def setZ(z = 0.02):
+    Z = z
+    hypometalic = (Z<0.004)
+    hypermetalic = (Z>0.01)
+
+    M1 = M2 = x = 0#declaration
+
+    def zConst(zeta):
+        a1  = poly(zeta,  1.593890 *1000,  2.053038 *1000,  1.231226 *1000,  2.327785 *100)
+        a2  = poly(zeta,  2.706708 *1000,  1.483131 *1000,  5.772723 *100,   7.411230 *10)
+        a3  = poly(zeta,  1.466143 *100,  -1.048442 *100,  -6.795374 *10,   -1.391127 *10)
+        a4  = poly(zeta,  4.141960 /100,   4.564888 /100,   2.958542 /100,   5.571483 /1000)
+        a5  = poly(zeta,  3.426349 /10)
+        a6  = poly(zeta,  1.949814 *10,    1.758178,       -6.008212,       -4.470533)
+        a7  = poly(zeta,  4.903830)
+        a8  = poly(zeta,  5.212154 /100,   3.166411 /100,  -2.750074 /1000, -2.271549 /1000)
+        a9  = poly(zeta,  1.312179,       -3.294936 /10,    9.231860 /100,   2.610989 /100)
+        a10 = poly(zeta,  8.073972 /10)
+        a13 = poly(zeta,  7.859573 *100,  -8.542048,       -2.642511 *10,   -9.585707)
+        a14 = poly(zeta,  3.858911 *1000,  2.459681 *1000, -7.630093 *10,   -3.486057 *100,  -4.861703 *10)
+        a15 = poly(zeta,  2.888720 *100,   2.952979 *100,   1.850341 *100,   3.797254 *10)
+        a16 = poly(zeta,  7.196580,        5.613746 /10,    3.805871 /10,    8.398728 /100)
+
+        a11 = poly(zeta,  1.031538,       -2.434480 /10,    7.732821,        6.460705,        1.374484)*a14
+        a12 = poly(zeta,  1.043715,       -1.577474,       -5.168234,       -5.596506,       -1.299394)*a14
+
+        a17 = max(1.25026 / min(1.28**(zeta-ma.log10(50)+3),1), 1.4*(min(1.32954**(zeta-ma.log10(50)+2),1)))#zeta-ma.log10(50)=sigma = log(Z)
+
+        a20 = poly(zeta,  2.652091 *10,    8.178458 *10,    1.156058 *100,   7.633811 *10,    1.950698 *10)
+
+        a18 = poly(zeta,  2.187715 /10,   -2.154437,       -3.768678,       -1.975518,       -3.021475 /10)*a20
+        a19 = poly(zeta,  1.466440,        1.839725,        6.442199,        4.023635,        6.957529 /10)*a20
+
+        a21 = poly(zeta,  1.472103,       -2.947609,       -3.312828,       -9.945065 /10)
+        a22 = poly(zeta,  3.071048,       -5.679941,       -9.745523,       -3.594543)
+        a23 = poly(zeta,  2.617890,        1.019135,       -3.292551 /100,  -7.445123 /100)
+        a24 = poly(zeta,  1.075567 /100,   1.773287 /100,   9.610479 /1000,  1.732469 /1000)
+        a25 = poly(zeta,  1.476246,        1.899331,        1.195010,        3.035051 /10)
+        a26 = poly(zeta,  5.502535,       -6.601663 /100,   9.968707 /100,   3.599801 /100)
+
+        a32 = poly(zeta,  6.682518,        2.827718 /10,   -7.294429 /100)
+
+        a27 = poly(zeta,  9.511033 *10,    6.819618 *10,   -1.045625 *10,   -1.474939 *10)
+        a28 = poly(zeta,  3.113458 *10,    1.012033 *10,   -4.650511,       -2.463185)
+        a29 = poly(zeta,  1.413057,        4.578814 /10,   -6.850581 /100,  -5.588658 /100)**a32
+        a30 = poly(zeta,  3.910862 *10,    5.196646 *10,    2.264970 *10,    2.873680)
+        a31 = poly(zeta,  4.597479,       -2.855179 /10,    2.709724 /10)
+
+        a34 = poly(zeta,  1.910302 /10,    1.158624 /10,    3.348990 /100,   2.599706 /1000)
+        a35 = poly(zeta,  3.931056 /10,    7.277637 /100,  -1.366593 /10,   -4.508946 /100)
+        a36 = poly(zeta,  3.267776 /10,    1.204424 /10,    9.988332 /100,   2.455361 /100)
+        a37 = poly(zeta,  5.990212 /10,    5.570264 /100,   6.207626 /100,   1.777283 /100)
+
+        a33 = max(0.6355 - 0.4192*zeta, clamp(1.5135 + 0.3769*zeta, 1.25, 1.4))
+
+        a38 = poly(zeta,  7.330122 /10,    5.192827 /10,    2.316416 /10,    8.346941 /1000)
+        a39 = poly(zeta,  1.172768,       -1.209262 /10,   -1.193023 /10,   -2.859837 /100)
+        a40 = poly(zeta,  3.982622 /10,   -2.296279 /10,   -2.262539 /10,   -5.219837 /100)
+        a41 = poly(zeta,  3.571038,       -2.223625 /100,  -2.611794 /100,  -6.359648 /1000)
+        a42 = clamp(poly(zeta,  1.9848,          1.1386,          3.5640   /10), 1.1, 1.25)
+        a43 = poly(zeta,  6.300    /100,   4.810    /100,   9.840    /1000)
+        a44 = clamp(poly(zeta,  1.200,           2.450), 0.45, 1.3)
+
+        a45 = poly(zeta,  2.321400 /10,    1.828075 /1000, -2.232007 /100,  -3.378734 /1000)
+        a46 = poly(zeta,  1.163659 /100,   3.427682 /1000,  1.421393 /1000, -3.710666 /1000)
+        a47 = poly(zeta,  1.048020 /100,  -1.231921 /100,  -1.686860 /100,  -4.234254 /1000)
+        a48 = poly(zeta,  1.555590,       -3.223927 /10,   -5.197429 /10,   -1.066441 /10)
+        a49 = max(0.145, poly(zeta,  9.7700   /100,  -2.3100   /10,   -7.5300   /100))
+        a50 = min(0.306 + 0.053*zeta, poly(zeta,  2.4000   /10,    1.8000   /10,    5.9500   /10))
+        a51 = min(0.3625 + 0.062*zeta, poly(zeta,  3.3000   /10,    1.3200   /10,    2.1800   /10))
+
+
+        a52 = max(0.9, poly(zeta,  1.1064,          4.1500   /10,    1.8000   /10))
+        a53 = min(1, poly(zeta,  1.1900,          3.7700   /10,    1.7600   /10))
+        if hypermetalic:
+            a52 = min(a52, 1.0)
+            a53 = min(a53, 1.1)
+
+        a54 = poly(zeta,  3.855707 /10,   -6.104166 /10,    5.676742,        1.060894 *10,    5.284014)
+        a55 = poly(zeta,  3.579064 /10,   -6.442936 /10,    5.494644,        1.054952 *10,    5.280991)
+        a56 = poly(zeta,  9.587587 /10,    8.777464 /10,    2.017321 /10)
+
+        a57 = max(0.6355 - 0.4192*zeta, clamp(1.5135 + 0.3769*zeta, 1.25, 1.4))
+
+        a58 = poly(zeta,  4.907546 /10,   -1.683928 /10,   -3.108742 /10,   -7.202918 /100)
+        a59 = poly(zeta,  4.537070,       -4.465455,       -1.612690,       -1.623246)
+        a60 = poly(zeta,  1.796220,        2.814020 /10,    1.423325,        3.421036 /10)
+        a61 = poly(zeta,  2.256216,        3.773400 /10,    1.537867,        4.396373 /10)
+        a62 = max(0.065, poly(zeta,  8.4300   /100,  -4.7500   /100,  -3.5200   /100))
+        a64 = poly(zeta,  1.3600   /10,    3.5200   /100)
+        a65 = poly(zeta,  1.564231 /1000,  1.653042 /1000, -4.439786 /1000, -4.951011 /1000, -1.216530 /1000)
+
+        a67 = poly(zeta,  5.210157,       -4.143695,       -2.120870)
+
+
+        a63 = poly(zeta,  7.3600   /100,   7.4900   /100,   4.4260   /100)
+        if hypometalic:
+            a63 = min(0.055, a63)
+
+        a64 = clamp(0.091, 0.121, a64)
+        a66 = max(0.8, min(0.8 - 2.0*zeta, max(1.4770+zeta*0.296, min(1.6, -0.308 - 1.046*zeta))))
+        a68 = min(clamp(1.1160+zeta*0.166, 0.9, 1.0), a66)
+
+        #a68=min(xyz, a66)
+        #so what is this?
+        #if a68 > a66:
+        #    a64 = (a58*a66**a60) / (a59 + a66**a61)
+
+        a69 = poly(zeta,  1.071489,       -1.164852 /10,   -8.623831 /100,  -1.582349 /100)
+        a70 = poly(zeta,  7.108492 /10,    7.935927 /10,    3.926983 /10,    3.622146 /100)
+        a71 = poly(zeta,  3.478514,       -2.585474 /100,  -1.512955 /100,  -2.833691 /1000)
+        a72 = poly(zeta,  9.132108 /10,   -1.653695 /10)
+        a73 = poly(zeta,  3.969331 /1000,  4.539076 /1000,  1.720906 /1000,  1.897857 /10000)
+        a74 = clamp(poly(zeta,  1.600,           7.640    /10,    3.322    /10), 1.4, 1.6)
+
+        if hypermetalic:
+            a72 = max(a72, 0.95)
+
+        a75 = max(clamp(poly(zeta,  8.109    /10,   -6.282    /10), 1.0, 1.27), 0.6355 - 0.4192*zeta)
+        a76 = poly(zeta,  1.192334 /100,   1.083057 /100,   1.230969,        1.551656)
+        a77 = poly(zeta, -1.668868 /10,    5.818123 /10,   -1.105027 *10,   -1.668070 *10)
+        a78 = poly(zeta,  7.615495 /10,    1.068243 /10,   -2.011333 /10,   -9.371415 /100)
+        a79 = poly(zeta,  9.409838,        1.522928)
+        a80 = max(0.0585542, poly(zeta, -2.7110   /10,   -5.7560   /10,   -8.3800   /100))
+        a81 = clamp(poly(zeta,  2.4930,          1.1475), 0.4, 1.5)
+
+        a76 = max(a76, -0.1015564 - 0.2161264*zeta - 0.05182516*zeta**2)
+        a77 = max(-0.3868776 - 0.5457078*zeta - 0.1463472*zeta**2, min(0.0, a77))
+        a78 = max(0.0, min(a78, 7.454 + 9.046*zeta))
+        a79 = min(a79, max(2.0, -13.3 - 18.6*zeta))
+
+        b1  = min(0.54, poly(zeta,  3.9700   /10,    2.8826   /10,    5.2930   /10))
+        b4  = poly(zeta,  9.960283 /10,    8.164393 /10,    2.383830,        2.223436,        8.638115 /10,     0.1231572)
+        b5  = poly(zeta,  2.561062 /10,    7.072646 /100,  -5.444596 /100,  -5.798167 /100,  -1.349129 /100)
+        b6  = poly(zeta,  1.157338,        1.467883,        4.299661,        3.130500,        6.992080 /10,     0.01640687)
+        b7  = poly(zeta,  4.022765 /10,    3.050010 /10,    9.962137 /10,    7.914079 /10,    1.728090 /10)
+
+
+
+
+
+
+        b9  = poly(zeta,  2.751631 *1000,  3.557098 *100)
+        b10 = poly(zeta, -3.820831 /100,   5.872664 /100)
+        b11 = poly(zeta,  1.071738 *100,  -8.970339 *10,   -3.939739 *10)**2
+        b12 = poly(zeta,  7.348793 *100,  -1.531020 *100,  -3.793700 *10)
+        b13 = poly(zeta,  9.219293,       -2.005865,       -5.561309 /10)**2
+
+        b15 = poly(zeta,  3.629118,       -9.112722 /10,    1.042291)
+
+        b14 = poly(zeta,  2.917412,        1.575290,        5.751814 /10)**b15
+        b16 = poly(zeta,  4.916389,        2.862149,        7.844850 /10)**b15
+
+        b17 = 1.0 - 0.3880523 * max(zeta + 1.0, 0) ** 2.862149
+
+        b28 = poly(zeta,  3.518506,        1.112440,       -4.556216 /10,   -2.179426 /10)
+
+        b18 = poly(zeta,  5.496045 *10,   -1.289968 *10,    6.385758)
+        b19 = poly(zeta,  1.832694,       -5.766608 /100,   5.696128 /100)
+        b20 = poly(zeta,  1.211104 *100)
+        b21 = poly(zeta,  2.214088 *100,   2.187113 *100,   1.170177 *10,   -2.635340 *10)
+        b22 = poly(zeta,  2.063983,        7.363827 /10,    2.654323 /10,   -6.140719 /100)
+        b23 = poly(zeta,  2.003160,        9.388871 /10,    9.656450 /10,    2.362266 /10)
+        b24 = poly(zeta,  1.609901 *10,    7.391573,        2.277010 *10,    8.334227)**b28
+        b25 = poly(zeta,  1.747500 /10,    6.271202 /100,  -2.324229 /100,  -1.844559 /100)
+        b27 = poly(zeta,  2.752869,        2.729201 /100,   4.996927 /10,    2.496551 /10)**(2*b28)
+
+        b33 = poly(zeta,  2.474401,        3.892972 /10)
+
+        b29 = poly(zeta,  1.626062 *100,  -1.168838 *10,   -5.498343)
+        b30 = poly(zeta,  3.336833 /10,   -1.458043 /10,   -2.011751 /100)
+        b31 = poly(zeta,  7.425137 *10,    1.790236 *10,    3.033910 *10,    1.018259 *10)**b33
+        b32 = poly(zeta,  9.268325 *100,  -9.739859 *10,   -7.702152 *10,   -3.158268 *10)**b33
+        b34 = poly(zeta,  1.127018 *10,    1.622158,       -1.442664,       -9.474699 /10)
+
+        b36 = poly(zeta,  1.445216 /10,   -6.180219 /100,   3.093878 /100,   1.567090 /100)**4
+        b37 = 4*poly(zeta,  1.304129,        1.395919 /10,    4.142455 /1000, -9.732503 /1000)
+        b38 = poly(zeta,  5.114149 /10,   -1.160850 /100)**4
+
+        b42 = poly(zeta,  1.997378,       -8.136205 /10)
+
+        b39 = poly(zeta,  1.314955 *100,   2.009258 *10,   -5.143082 /10,   -1.379140)
+        b40 = max(1, poly(zeta,  1.823973 *10,   -3.074559,       -4.307878))
+        b41 = poly(zeta,  2.327037,        2.403445,        1.208407,        2.087263 /10)**b42
+        b43 = poly(zeta,  1.079113 /10,    1.762409 /100,   1.096601 /100,   3.058818 /1000)
+        b44 = poly(zeta,  2.327409,        6.901582 /10,   -2.158431 /10,   -1.084117 /10)**5
+
+
+        b45 = poly(zeta, 1.0-2.47162+5.401682-3.247361, 2*5.401682-2.47162-3*3.247361, 5.401682-3*3.247361, - 3.247361)
+
+        if zeta <= -1:
+            b45 = 1.0
+
+        b46 = poly(zeta,  -2.214315,       1.975747)
+        b47 = poly(zeta, 1.127733+0.2344416-0.3793726, 1.127733+(2*0.2344416)-3*0.3793726, 0.2344416-3*0.3793726,  -0.3793726)
+        b48 = poly(zeta,  5.072525,        1.146189 *10,    6.961724,        1.316965)
+        b49 = 5.139740#poly(zeta,  5.139740)
+
+        b51 = poly(zeta,  1.125124,        1.306486,        3.622359,        2.601976,        3.031270 /10, -0.1343798)
+        b52 = poly(zeta,  3.349289 /10,    4.531269 /1000,  1.131793 /10,    2.300156 /10,    7.632745 /100)
+        b53 = poly(zeta,  1.467794,        2.798142,        9.455580,        8.963904,        3.339719, 0.4426929)
+        b54 = poly(zeta,  4.658512 /10,    2.597451 /10,    9.048179 /10,    7.394505 /10,    1.607092 /10)
+        b55 = poly(zeta,  1.0422,          0.13156,         0.045)
+        b56 = poly(zeta,  1.110866,        9.623856 /10,    2.735487,        2.445602,        8.826352 /10, 0.1140142)
+        b57 = poly(zeta, -1.584333 /10,   -1.728865 /10,   -4.461431 /10,   -3.925259 /10,   -1.276203 /10, -0.01308728)
+
+        lz1 = poly(zeta,   0.39704170,  -0.32913574,   0.34776688,   0.37470851,   0.09011915)
+        lz2 = poly(zeta,   8.52762600, -24.41225973,  56.43597107,  37.06152575,   5.45624060)
+        lz3 = poly(zeta,   0.00025546,  -0.00123461,  -0.00023246,   0.00045519,   0.00016176)
+        lz4 = poly(zeta,   5.43288900,  -8.62157806,  13.44202049,  14.51584135,   3.39793084)
+        lz5 = poly(zeta,   5.56357900, -10.32345224,  19.44322980,  18.97361347,   4.16903097)
+        lz6 = poly(zeta,   0.78866060,  -2.90870942,   6.54713531,   4.05606657,   0.53287322)
+        lz7 = poly(zeta,   0.00586685,  -0.01704237,   0.03872348,   0.02570041,   0.00383376)
+
+        rz1 = poly(zeta,   1.71535900,   0.62246212,  -0.92557761,  -1.16996966,  -0.30631491)
+        rz2 = poly(zeta,   6.59778800,  -0.42450044, -12.13339427, -10.73509484,  -2.51487077)
+        rz3 = poly(zeta,  10.08855000,  -7.11727086, -31.67119479, -24.24848322,  -5.33608972)
+        rz4 = poly(zeta,   1.01249500,   0.32699690,  -0.00923418,  -0.03876858,  -0.00412750)
+        rz5 = poly(zeta,   0.07490166,   0.02410413,   0.07233664,   0.03040467,   0.00197741)
+        rz6 = poly(zeta,   0.01077422)
+        rz7 = poly(zeta,   3.08223400,   0.94472050,  -2.15200882,  -2.49219496,  -0.63848738)
+        rz8 = poly(zeta,  17.84778000,  -7.45245690, -48.96066856, -40.05386135,  -9.09331816)
+        rz9 = poly(zeta,   0.00022582,  -0.00186899,   0.00388783,   0.00142402,  -0.00007671)
+
+        M1 = poly(zeta, 1.0185, 0.16015, 0.0892)
+        M2 = poly(zeta, 1.995, 0.25, 0.087)
+
+        D0 = 5.37 + 0.135*zeta
+        x = clamp(0.95 - 0.03 * (zeta + 0.30103), 0.95, 0.99)
+        MOBZIDK = 0.85*zeta
+
+        return;
+
+    zConst(ma.log(Z*50));
+
+    b2 = min(max(10**(-4.6739 + Z*0.0271494441528), -0.04167 + 55.67*Z), 0.4771 - 9329.21 * Z**2.94)
+
+    b3 = 10**(-max(0.1451, poly(ma.log(Z), 2.2794, 1.5175, 0.254)))
+    if hypometalic:
+        b3 = max(b3, 0.7307 + 14265.1 * Z**3.395)
+
+    b26 = 5.0 - 0.09138012 * Z ** -0.3671407
+
+    Mhook = M1#eq 1
+    MHeF = M2#eq 2
+    MFGB = (13.048 * (Z/0.02)**0.06) / (1 + 0.0012 * (0.02/Z)**1.27)#eq 3
+
+
+    b460 = ma.log10(MHeF / MFGB)
+    b550 = min(0.99164 - 743.123 * Z**2.83, b55)
+
+    X = x# eq 6
+
+    return;
+
+
+
+
+
+
+
+
+global data
+
+
 
 ##############################################################################################################
 
 # PART 3: Evolution Functions
 
-#interpolation function; we'll use it a lot
-def interp(lo_in,hi_in,lo_dep,hi_dep,var):
-    res = lo_dep + (hi_dep - lo_dep) * (var - lo_in) / (hi_in - lo_in) 
-    return res
 
 
-# Initial mass boundaries
 
-def f_Mhook(ze):
-    Mhook = 1.0185 + 0.16015*ze + 0.0892*ze**2     #eq 1
-    return Mhook
 
-def f_MHeF(ze):
-    MHeF = 1.995 + 0.25*ze + 0.087*ze**2    #eq 2
-    return MHeF
 
-def f_MFGB(z):
-    MFGB = (13.048 * (z/0.02)**0.06) / (1 + 0.0012 * (0.02/z)**1.27)    #eq 3
-    return MFGB
-
-Mhook = f_Mhook(zeta)
-MHeF = f_MHeF(zeta)
-MFGB = f_MFGB(Z)
-
-b46 = -1.0 * b46 * ma.log10(MHeF / MFGB)
-
-##############################################################################################################
 
 # Main sequence
 
@@ -381,8 +488,7 @@ def f_tMS(m, tBGB=0, thook=0):
         tBGB = f_tBGB(m)
     if thook ==0:
         thook = f_thook(m, tBGB)
-    x = max(0.95, min(0.95 - 0.03 * (zeta + 0.30103), 0.99))  #eq 6
-    tMS = max(thook, x*tBGB)    #eq 5
+    tMS = max(thook, X*tBGB)    #eq 5
     return tMS
 
 def f_thook(m, tBGB=0):
@@ -676,7 +782,6 @@ def f_B(m):
     return B
 
 def f_D(m):
-    D0 = 5.37 + 0.135*zeta
     if m <= MHeF:
         D_1 = D0
     elif m >= 2.5:
@@ -934,8 +1039,8 @@ def f_taubl(m):
     if m < MHeF:
         taubl = 1
     elif m <= MFGB:
-        alphabl = (1 - b45 * (MHeF / MFGB)**0.414) * (ma.log10(MHeF / MFGB))**-b46
-        taubl = b45 * (m / MFGB)**0.414 + alphabl * (ma.log10(m / MFGB))**b46       #eq 58
+        alphabl = (1 - b45 * (MHeF / MFGB)**0.414) * (ma.log10(MHeF / MFGB))**(-b46*b460)
+        taubl = b45 * (m / MFGB)**0.414 + alphabl * (ma.log10(m / MFGB))**(b46*b460)       #eq 58
         taubl = taubl.real      #It doesn't quite seem right that there are complex numbers in here, but I can't see how else you'd interpret the formulae, and the imaginary component does end up being negligible
     else:
         taubl = (1 - b47) * f_fbl(m) / f_fbl(MFGB)
@@ -1069,14 +1174,14 @@ def f_McDU(McBAGB):
 
 def f_RAGB(m, L):
     if m >= MHeF:
-        b50 = b55 * b3
+        b50 = b550*b3
         A = min(b51*m**-b52, b53*m**-b54)
     elif m <= MHeF - 0.2:
         b50 = b3
         A = b56 + b57*m
     else:
         b50_lo = b3
-        b50_hi = b55 * b3
+        b50_hi = b550*b3
         b50 = interp(MHeF-0.2, MHeF, b50_lo, b50_hi, m)
         A_lo = b56 + b57 * (MHeF - 0.2)
         A_hi = min(b51*MHeF**-b52, b53*MHeF**-b54)
@@ -1293,7 +1398,7 @@ def black_hole(m,t):
 # Small-Envelope Behavior
 
 def small_env(m, m0, Mc, McCO, L, R, stage, t):
-    if ML_on == False or stage < 2 or stage == 7 or stage > 9:
+    if stage < 2 or stage == 7 or stage > 9:
         L_1 = L
         R_1 = R
         Rcr = 0
@@ -1347,7 +1452,7 @@ def small_env(m, m0, Mc, McCO, L, R, stage, t):
 # Mass Loss
 
 def mass_loss(m, Mc, McCO, L, R, stage):
-    if ML_on == False or stage > 9 or stage == 0:
+    if stage > 9 or stage == 0:
         ML = 0.0
     else:
         MR = 0.0
@@ -1380,9 +1485,9 @@ def mass_loss(m, Mc, McCO, L, R, stage):
             Teff = 5778 * ma.sqrt(ma.sqrt(L) / R)
             if Teff >= 12500 and Teff <= 50000:
                 if Teff < 25000:    #eq 6 from B2010
-                    MOB = 10**(-6.688 + 2.210 * ma.log10(L/100000) - 1.339 * ma.log10(m/30) - 1.601 * ma.log10(1.3/2) + 0.85 * zeta + 1.07 * ma.log10(Teff/20000))
+                    MOB = 10**(-6.688 + 2.210 * ma.log10(L/100000) - 1.339 * ma.log10(m/30) - 1.601 * ma.log10(1.3/2) + MOBZIDK + 1.07 * ma.log10(Teff/20000))
                 else:   #eq 7 from B2010
-                    MOB = 10**(-6.697 + 2.194 * ma.log10(L/100000) - 1.313 * ma.log10(m/30) - 1.226 * ma.log10(2.6/2) + 0.85 * zeta + 0.933 * ma.log10(Teff/40000) - 10.92 * ma.log10(Teff/40000)**2)
+                    MOB = 10**(-6.697 + 2.194 * ma.log10(L/100000) - 1.313 * ma.log10(m/30) - 1.226 * ma.log10(2.6/2) + MOBZIDK + 0.933 * ma.log10(Teff/40000) - 10.92 * ma.log10(Teff/40000)**2)
         ML = max (MR, MVW, MNJ, MWR, MOB)
         if L > 600000 and (R * L)**0.5 / 100000 > 1.0:
             if stage < 7:
@@ -1540,11 +1645,11 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         McCO = 0.0
         McSN = 1.0
     if McBAGB >= 1.83 and McBAGB <= 2.25 and McCO > 1.38: #Per F2012; the text is not totally clear on the implementation so this is a best guess
-        print(' Electron-Capture Supernova!')
+        data += "Event: Electron-Capture Supernova!\n"
         t1 = 0.0
         m0 = 1.26078    #Solution for eq 13 in F2012 with Mrembar of 1.38
         stout = 13
-        print(' Neutron Star')
+        data += "Event: Neutron Star\n"
     elif McCO >= McSN:    #Supernova or collapse event; includes several modifications from F2012
         if stin == 8 or stin == 9:
             McBAGB = m
@@ -1553,43 +1658,26 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         t1 = 0.0
         if McBAGB < 1.83:   #Altered from 1.6 per F2012
             stout = 15
-            print(' Supernova!')
-            print(' No Remnant')
+            data += "Event: Supernova!\n"
+            data += "Event: No Remnant\n"
             m0 = 0
         else:
             direct = False
-            if fast_SN:
-                Mproto = 1      #eq 15 from F2012
-                if McSN < 2.5:  #eq 16 from F2012
-                    Mfb = 0.2
-                elif McSN < 6:
-                    Mfb = 0.286 * McSN - 0.514
-                elif McSN < 7:
-                    Mfb = m - 1
-                    direct = True
-                elif McSN < 11:
-                    ka1 = 0.25 - 1.275 / (m - 1)
-                    kb1 = -11 * ka1 + 1
-                    Mfb = (m - 1) * (ka1 * McSN + kb1)
-                else:
-                    Mfb = m - 1
-                    direct = True
+            Mproto = 1      #eq 15 from F2012
+            if McSN < 2.5:  #eq 16 from F2012
+                Mfb = 0.2
+            elif McSN < 6:
+                Mfb = 0.286 * McSN - 0.514
+            elif McSN < 7:
+                Mfb = m - 1
+                direct = True
+            elif McSN < 11:
+                ka1 = 0.25 - 1.275 / (m - 1)
+                kb1 = -11 * ka1 + 1
+                Mfb = (m - 1) * (ka1 * McSN + kb1)
             else:
-                if McSN < 4.82:     #eq 10 from F2012
-                    Mproto = 1.50
-                elif McSN < 6.31:
-                    Mproto = 2.11
-                elif McSN < 6.75:
-                    Mproto = 0.69 * McSN - 2.26
-                else:
-                    Mproto = 0.37 * McSN - 0.07
-                if McSN < 5:        #eq 11 from F2012
-                    Mfb = 0
-                elif McSN < 7.6:
-                    Mfb = (m - Mproto) * (0.378 * McSN - 1.889)
-                else:
-                    Mfb = m - Mproto
-                    direct = True
+                Mfb = m - 1
+                direct = True
             Mrembar = Mproto + Mfb  #eq 12 from F2012
             if Mrembar > 2.96875:   #corresponding to a maximum NS mass of 2.5
                 if stin > 6:
@@ -1600,26 +1688,26 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
                     if MHe > 65:
                         m0 = 0
                         stout = 15
-                        print(' Pair-Instability Supernova!')
-                        print(' No Remnant')
+                        data += "Event: Pair-Instability Supernova!\n"
+                        data += "Event: No Remnant\n"
                     else:
                         m0 = 40.5
                         stout = 14
-                        print(' Pair-Instability Pulsation Supernova!')
-                        print(' Black Hole')
+                        data += "Event: Pair-Instability Pulsation Supernova!\n"
+                        data += "Event: Black Hole\n"
                 else:
                     if direct:
-                        print(' Direct Collapse')
+                        data += "Event: Direct Collapse\n"
                     else:
-                        print(' Supernova!')
+                        data += "Event: Supernova!\n"
                     stout = 14
                     m0 = 0.9 * Mrembar  #eq 14 from F2012
-                    print(' Black Hole')
+                    data += "Event: Black Hole\n"
             else:
-                print(' Supernova!')
+                data += "Event: Supernova!\n"
                 stout = 13
                 m0 = (ma.sqrt(1 + 0.3 * Mrembar) - 1) / 0.15    #solution for eq 13 from F2012
-                print(' Neutron Star')
+                data += "Event: Neutron Star\n"
     elif Mc >= mt:      #Transitions to White Dwarf or Naked Helium star
         m0 = Mc
         t1 = 0.0
@@ -1627,18 +1715,18 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
             McBAGB = f_McBAGB(m)
             if McBAGB < 1.83:   #Altered from 1.6 per F2012
                 stout = 11
-                print(' C/O White Dwarf')
+                data += "Event: C/O White Dwarf\n"
             else:
                 stout = 12
-                print(' O/Ne White Dwarf')
+                data += "Event: O/Ne White Dwarf\n"
         elif stin == 5:
             stout = 8
             Mcmax = f_Mcmax(Mc)
             if McCO >= Mcmax:   #Some low-mass, high-metallicity stars can reach this point with a core mass already above the expected point of He fusion cessation
                 stout = 11      #The paper does not bring up the possibility of stars skipping straight from EAGB to WD but I can't see how else to interpret this
-                print(' C/O White Dwarf')
+                data += "Event: C/O White Dwarf\n"
             else:
-                print(' Naked Helium HG')
+                data += "Event: Naked Helium HG\n"
                 p = f_p(Mc)
                 q = f_q(Mc)
                 B = f_B(Mc)
@@ -1659,10 +1747,10 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
             Mcmax = f_Mcmax(Mc)
             if McCO >= Mcmax:   #As above
                 stout = 11
-                print(' C/O White Dwarf')
+                data += "Event: C/O White Dwarf\n"
             else:
                 stout = 7
-                print(' Naked Helium MS')
+                data += "Event: Naked Helium MS\n"
                 tHeI = f_tHeI(m)
                 tBGB = f_tBGB(m)
                 tHe = f_tHe(m, tBGB, Mc)
@@ -1671,22 +1759,18 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         else:
             if m < MHeF:
                 stout = 10
-                print(' He White Dwarf')
+                data += "Event: He White Dwarf\n"
             else:
                 stout = 7
-                print(' Naked Helium MS')
+                data += "Event: Naked Helium MS\n"
     elif stin == 1:
         tMS = f_tMS(m)
         tMS1 = f_tMS(mt)
         t1 = t * tMS1 / tMS
         m0 = mt
         if t >= tMS:
-            if stop_LM and m < 0.8:
-                stout = 0   #I've opted to use "0" to designate the cessation of modelling for low-mass stars, rather than their main sequence as in Hurley et al. 2000
-                print(' Main Sequence Concluded; Post-MS not simulated')
-            else:
-                stout = 2
-                print(' Hertzsprung Gap')
+            stout = 2
+            data += "Event: Hertzsprung Gap\n"
         else:
             stout = 1
     elif stin == 2:
@@ -1709,17 +1793,17 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         if t1 >= tBGB1:
             if m0 > MFGB:
                 stout = 4
-                print(' Core Helium Burning')
+                data += "Event: Core Helium Burning\n"
             else:
                 stout = 3
-                print(' First Giant Branch')
+                data += "Event: First Giant Branch\n"
         else:
             stout = 2
     elif stin == 3:
         tHeI = f_tHeI(m)
         if t >= tHeI:
             stout = 4
-            print(' Core Helium Burning')
+            data += "Event: Core Helium Burning\n"
             if m < MHeF:
                 m0 = mt
                 tHeI = f_tHeI(m0)
@@ -1732,13 +1816,13 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         tHe = f_tHe(m, tBGB, Mc)
         if t >= tHeI + tHe:
             stout = 5
-            print(' Early Asymptotic Giant Branch')
+            data += "Event: Early Asymptotic Giant Branch\n"
         else:
             stout = 4
     elif stin == 5:
         if late:
             stout = 6
-            print(' Thermally Pulsating Asymptotic Giant Branch')
+            data += "Event: Thermally Pulsating Asymptotic Giant Branch\n"
         else:
             stout = 5
     elif stin == 7:
@@ -1746,13 +1830,13 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         if McCO >= Mcmax:
             stout = 11
             t1 = 0.0
-            print(' C/O White Dwarf')
+            data += "Event: C/O White Dwarf\n"
         tHeMS = f_tHeMS(m)
         tHeMS1 = f_tHeMS(mt)
         t1 = t * tHeMS1 / tHeMS
         if t1 >= tHeMS1:
             stout = 8
-            print(' Naked Helium HG')
+            data += "Event: Naked Helium HG\n"
         else:
             stout = 7
             m0 = mt
@@ -1761,11 +1845,11 @@ def evolve(m, t, stin, mt=0, Mc=0, McCO=0, late=False):
         if McCO >= Mcmax:
             stout = 11
             t1 = 0.0
-            print(' C/O White Dwarf')
+            data += "Event: C/O White Dwarf\n"
         elif late:
             stout = 9
             if stin == 8:
-                print(' Naked Helium GB')
+                data += "Event: Naked Helium GB\n"
         else:
             stout = 8
     else:
@@ -1791,12 +1875,6 @@ def retry_check(mt, m0, Mc, McCO, R, R1, stage, stagei):
         elif mt < McCO * 0.99:
             good = 0
     return good
-    
-
-#Computes extra data and stores it all to numpy array
-def data_store(datain, step, stage, t, mt, Mc, McCO, ML, L, R, Rc):
-    data = np.append(datain, [[step, stage, t, mt, Mc, McCO, ML, L, R, Rc]], 0)
-    return data
 
 #General formula for HZ calculation
 def f_HZ(L, THZ, S, ka, kb, kc, kd):
@@ -1893,8 +1971,9 @@ def sim_step(m0, mti, ML, Mci, McCOi, R1, t0, dt, stagei, late):
     return m, mt, Mc, McCO, t1, dt, L, R, stage, late
             
 #Core simulation loop
-def sim_run(m):
-    print('Evolving Star...')
+def sim_run(M=1):
+    data = ""
+    data += "Event: Begin\n"
     stage = 1
     late = False
     step = 0
@@ -1909,70 +1988,48 @@ def sim_run(m):
     R = f_RZAMS(m0)
     R1 = R
     stagei = 0
-    data = np.empty([0,15])
-    print(' Main Sequence')
+    data += "Event: Main Sequence\n"
+
     while t < 10**8:
         stagei = stage
         m0, mt, Mc, McCO, t1, dt, L, R1, stage, late = sim_step(m0, mt, ML, Mc, McCO, R1, t1, dt, stage, late)
         t = t + dt
-        if stage != stagei:
-            print('  (' + str(t) + ' myr)')
-        if verbose == True:
-            print(t)
+
         L, R, Rcr = small_env(mt, m0, Mc, McCO, L, R1, stage, t1)
         ML = mass_loss(mt, Mc, McCO, L, R, stage)
         if stage == 0 or stage == 15:
             Teff, hzoptin, hzconin, hzconout, hzoptout = 0, 0, 0, 0, 0
         else:
             Teff, hzoptin, hzconin, hzconout, hzoptout = data_add(L, R)
-        data = np.append(data, [[step, stage, t, mt, Mc, McCO, ML, L, R, Rcr, Teff, hzoptin, hzconin, hzconout, hzoptout]], 0)
+        
+        data += str([step, stage, t, mt, Mc, McCO, ML, L, R, Rcr, Teff, hzoptin, hzconin, hzconout, hzoptout])+"\n"
+        
         dt = timestep(m0, ML, t1, stage, Mc, McCO, mt)
         step += 1
-        if step == 2001:
-            print(' WARNING: very long output')
-            print('  you may need to extend the lists in the "Organized Data" tab of the starpasta_out spreadsheet')
-        elif step == 100001:
-            print(' WARNING: extremely long output')
-            print('  may be beyond length that the starpasta_out spreadsheet can handle')
         if stage == 0 or stage == 15:
+            data += "Event: End\n"
             break
-    print('Simulation Complete')
-    print('Writing data...')
-    savename = path + 'Z' + str(Z) + '_M' + str(m) + '.csv'
-    np.savetxt(savename, data, delimiter=",")
-    print('Output saved to ' + str(savename))
-    return
-    
-    
-        
-        
-        
-        
-        
+    data += "Terminated\n"
+    return data
 
 
-##############################################################################################################
 
-# PART 6: Main Routine
+Zdef = 0.02
+Zmin = 0.0001
+Zmax = 0.03
+ZScale = "logarithmic"
+Zhelp = "The sun is 0.02, the range is from 0.0001 to 0.03."
 
-sim_run(M)
-input('')
+Mdef = 1
+Mmin = 0.08
+Mmax = 300
+MScale = "logarithmic"
+Mhelp = "The sun is 1 by definition, the range is 0.08 to 300, the accurate range is from 0.8 to 150."
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+#setZ(Z)
+#sim_run(M)
